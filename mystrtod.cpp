@@ -1,3 +1,5 @@
+// Copyright (c) 2020, Ben Wiederhake <BenWiederhake.GitHub@gmx.de>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +18,7 @@ static const char* TEXT_RESET = "";
 
 size_t serenity_strlen(const char* str)
 {
+    // Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
     size_t len = 0;
     while (*(str++))
         ++len;
@@ -24,6 +27,7 @@ size_t serenity_strlen(const char* str)
 
 int serenity_atoi(const char* str)
 {
+    // Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
     size_t len = serenity_strlen(str);
     int value = 0;
     bool isNegative = false;
@@ -42,6 +46,7 @@ int serenity_atoi(const char* str)
 
 double old_strtod(const char* str, char** endptr)
 {
+    // Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
     size_t len = serenity_strlen(str);
     size_t weight = 1;
     int exp_val = 0;
