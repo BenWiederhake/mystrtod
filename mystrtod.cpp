@@ -1,5 +1,6 @@
 // Copyright (c) 2020, Ben Wiederhake <BenWiederhake.GitHub@gmx.de>
 
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -133,7 +134,7 @@ struct Testcase {
 
 static Testcase TESTCASES[] = {
     // What I came up with on my own
-    {"BW0", 1, "0000000000000000", ".."},
+    {"BW0", 0, "0000000000000000", ".."},
     {"BW1", 2, "3ff0000000000000", "1..0"},
     {"BW2", 1, "3ff0000000000000", "1"},
     {"BW3", 2, "0000000000000000", ".0"},
@@ -143,18 +144,42 @@ static Testcase TESTCASES[] = {
     // https://github.com/SerenityOS/serenity/issues/1979
     {"SR1", -1, "4014000000000001", "5.000000000000001"},
     {"SR2", -1, "4014000000000000", "5.0000000000000001"},
-    // 5.0000000000000001
-    // 1.0000000000000000000000000000001
-    // 1.00000000000000000000000000000001
-    // 1.12345678912345678912345678912345
-    // 1.123456789123456789123456789123456789123456789
+    {"SR3", -1, "3ff0000000000000", "1.0000000000000000000000000000001"},
+    {"SR4", -1, "3ff0000000000000", "1.00000000000000000000000000000001"},
+    {"SR5", -1, "3ff1f9add37c1216", "1.12345678912345678912345678912345"},
+    {"SR6", -1, "3ff1f9add37c1216", "1.123456789123456789123456789123456789123456789"},
+    // Inspired from Abraham Hrvoje's "negativeFormattingTests":
+    // https://github.com/ahrvoje/numerics/blob/master/strtod/strtod_tests.toml
+    // Note that my interpretation is slightly stricter than what Abraham Hrvoje wrote.
+    {"AHN01", 3, "7ff0000000000000", "inf1"},
+    {"AHN02", 3, "7ff0000000000000", "inf+"},
+    {"AHN03", 0, "0000000000000000", ".E"},
+    {"AHN04", 3, "3ff0000000000000", "1.0e"},
+    {"AHN05", 4, "400399999999999a", "2.45+e+3"},
+    {"AHN06", 2, "4037000000000000", "23e.23"},
+    {"AHN07", 0, "0000000000000000", "e9"},
+    {"AHN08", 0, "0000000000000000", "+e"},
+    {"AHN09", 0, "0000000000000000", "e+"},
+    {"AHN10", 0, "0000000000000000", "."},
+    {"AHN11", 0, "0000000000000000", "e"},
+    {"AHN12", 2, "3fe6666666666666", ".7+"},
+    {"AHN13", 3, "3fcae147ae147ae1", ".21e"},
+    {"AHN14", 0, "0000000000000000", "+"},
+    {"AHN15", 0, "0000000000000000", ""},
+    {"AHN16", 3, "7ff0000000000000", "infe"},
+    {"AHN17", 3, "7ff8000000000000", "nan(err"},
+    {"AHN18", 3, "7ff8000000000000", "nan)"},
+    {"AHN19", 3, "7ff8000000000000", "NAN(test_)_)"},
+    {"AHN20", 3, "7ff8000000000000", "nan0"},
+    {"AHN21", 0, "0000000000000000", "-.e+"},
+    {"AHN22", 0, "0000000000000000", "-+12.34"},
 };
 
 constexpr size_t NUM_TESTCASES = sizeof(TESTCASES) / sizeof(TESTCASES[0]);
 
 typedef double (*strtod_fn_t)(const char* str, char** endptr);
 
-void display_strtod(strtod_fn_t strtod_fn, const char* test_string, const char* expect_hex, int expect_consume) {
+bool evaluate_strtod(strtod_fn_t strtod_fn, const char* test_string, const char* expect_hex, int expect_consume) {
     union readable_t {
         double as_double;
         unsigned char as_bytes[8];
@@ -189,13 +214,15 @@ void display_strtod(strtod_fn_t strtod_fn, const char* test_string, const char* 
     bool error_cns = !actual_consume_possible;
     bool wrong_cns = !error_cns && (actual_consume != expect_consume);
 
-    printf(" %s%s%s(%s%3u%s)",
+    printf(" %s%s%s(%s%2u%s)",
            wrong_hex ? TEXT_WRONG : "",
            actual_hex,
            wrong_hex ? TEXT_RESET : "",
            error_cns ? TEXT_ERROR : wrong_cns ? TEXT_WRONG : "",
            actual_consume,
            (error_cns || wrong_cns) ? TEXT_RESET : "");
+
+    return wrong_hex || error_cns || wrong_cns;
 }
 
 int main()
@@ -205,18 +232,34 @@ int main()
         return 1;
     }
     printf("Running %u testcases...\n", NUM_TESTCASES);
-    printf("%5s(%-5s): %16s(%3s) %16s(%3s) %16s(%3s) %16s(%3s) -- %s\n", "num", "name", "correct", "cns", "builtin", "cns", "old_strtod", "cns", "new_strtod", "cns", "teststring");
-    for (size_t i = 0; i < NUM_TESTCASES; i++) {
+    printf("%3s(%-5s): %16s(%2s) %16s(%2s) %16s(%2s) %16s(%2s) – %s\n", "num", "name", "correct", "cs", "builtin", "cs", "old_strtod", "cs", "new_strtod", "cs", "teststring");
+
+    int stay_good = 0;
+    int stay_bad = 0;
+    int regressions = 0;
+    int fixes = 0;
+    for (size_t i = 0; i < NUM_TESTCASES; i++)
+    {
         Testcase& tc = TESTCASES[i];
         if (tc.should_consume == -1) {
             tc.should_consume = strlen(tc.test_string);
         }
-        printf("%5u(%-5s):", i, tc.test_name);
-        printf(" %s(%3d)", tc.hex, tc.should_consume);
-        display_strtod(strtod, tc.test_string, tc.hex, tc.should_consume);
-        display_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
-        display_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume);
-        printf(" -- %s\n", tc.test_string);
+        printf("%3u(%-5s):", i, tc.test_name);
+        printf(" %s(%2d)", tc.hex, tc.should_consume);
+        evaluate_strtod(strtod, tc.test_string, tc.hex, tc.should_consume);
+        bool old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
+        bool new_bad = evaluate_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume);
+        printf(" – %s\n", tc.test_string);
+        switch ((old_bad ? 2 : 0) | (new_bad ? 1 : 0))
+        {
+            case 0b00: stay_good += 1; break;
+            case 0b01: regressions += 1; break;
+            case 0b10: fixes += 1; break;
+            case 0b11: stay_bad += 1; break;
+            default: assert(false);
+        }
     }
+    printf("Out of %d tests, the new strtod fixes %d and regresses %d.\n", NUM_TESTCASES, regressions, fixes);
+    printf("(%d stayed good and %d stayed bad.)\n", stay_good, stay_bad);
     return 0;
 }
