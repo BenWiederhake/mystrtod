@@ -299,6 +299,7 @@ double new_strtod(const char* str, char** endptr) {
     // numbers like `0.0000000000000000000000000000000000001234` or
     // `1234567890123456789012345678901234567890` with ease.
     LongLongParser digits{sign, base};
+    bool digits_usable = false;
     bool should_continue = true;
     bool digits_overflow = false;
     bool after_decimal = false;
@@ -318,6 +319,8 @@ double new_strtod(const char* str, char** endptr) {
             switch (decision) {
             case DigitConsumeDecision::Consumed:
                 is_a_digit = true;
+                // The very first actual digit must pass here:
+                digits_usable = true;
                 break;
             case DigitConsumeDecision::PosOverflow:
                 // fallthrough
@@ -341,6 +344,13 @@ double new_strtod(const char* str, char** endptr) {
         should_continue = is_a_digit;
         parse_ptr += should_continue;
     } while (should_continue);
+
+    if (!digits_usable) {
+        // No actual number value available.
+        if (endptr)
+            *endptr = const_cast<char*>(str);
+        return 0.0;
+    }
 
     // Parse exponent.
     // We already know the next character is not a digit in the current base,
@@ -472,6 +482,8 @@ double new_strtod(const char* str, char** endptr) {
     if (exponent < 0) {
         exponent = -exponent;
         for (int i = 0; i < exponent; ++i) {
+            // strtod is not supposed to return denormals.
+            // I don't think this is reasonable; return denormals anyway.
             value /= base;
         }
     } else if (exponent > 0) {
