@@ -782,15 +782,19 @@ int main()
             old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
         }
         bool new_bad = evaluate_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume);
-        printf(" – %s\n", tc.test_string);
+        printf(" – %s", tc.test_string);
         switch ((old_bad ? 2 : 0) | (new_bad ? 1 : 0))
         {
             case 0b00: stay_good += 1; break;
-            case 0b01: regressions += 1; break;
+            case 0b01:
+                regressions += 1;
+                printf(" %sREGRESSION%s", TEXT_WRONG, TEXT_RESET);
+                break;
             case 0b10: fixes += 1; break;
             case 0b11: stay_bad += 1; break;
             default: assert(false);
         }
+        printf("\n");
     }
     printf("Out of %d tests, the new strtod regresses %d and fixes %d.\n", NUM_TESTCASES, regressions, fixes);
     printf("(%d stayed good and %d stayed bad.)\n", stay_good, stay_bad);
