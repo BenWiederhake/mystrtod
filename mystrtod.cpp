@@ -1,6 +1,7 @@
 // Copyright (c) 2020, Ben Wiederhake <BenWiederhake.GitHub@gmx.de>
 
 #include <assert.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -120,12 +121,364 @@ double old_strtod(const char* str, char** endptr)
     return is_negative ? -value : value;
 }
 
-double new_strtod(const char* str, char** endptr) {
-    const char* parse_ptr = str;
+void strtons(const char* str, char** endptr) {
+    assert(endptr);
+    char* ptr = const_cast<char*>(str);
+    while (isspace(*ptr)) {
+        ptr += 1;
+    }
+    *endptr = ptr;
+}
 
+enum Sign {
+    Negative,
+    Positive,
+};
+
+Sign strtosign(const char* str, char** endptr) {
+    assert(endptr);
+    if (*str == '+') {
+        *endptr = const_cast<char*>(str + 1);
+        return Sign::Positive;
+    } else if (*str == '-') {
+        *endptr = const_cast<char*>(str + 1);
+        return Sign::Negative;
+    } else {
+        *endptr = const_cast<char*>(str);
+        return Sign::Positive;
+    }
+}
+
+enum DigitConsumeDecision {
+    Consumed,
+    PosOverflow,
+    NegOverflow,
+    Invalid,
+};
+
+template<typename T, T min_value, T max_value>
+class NumParser {
+public:
+    NumParser(Sign sign, int base)
+        : m_base(base), m_num(0), m_sign(sign)
+    {
+        m_cutoff = positive() ? (max_value / base) : (min_value / base);
+        m_max_digit_after_cutoff = positive() ? (max_value % base) : (min_value % base);
+    }
+
+    int parse_digit(char ch) {
+        int digit;
+        if (isdigit(ch))
+            digit = ch - '0';
+        else if (islower(ch))
+            digit = ch - ('a' - 10);
+        else if (isupper(ch))
+            digit = ch - ('A' - 10);
+        else
+            return -1;
+
+        if (digit >= m_base)
+            return -1;
+
+        return digit;
+    }
+
+    DigitConsumeDecision consume(char ch) {
+        int digit = parse_digit(ch);
+        if (digit == -1)
+            return DigitConsumeDecision::Invalid;
+
+        if (!can_append_digit(digit)) {
+            if (m_sign != Sign::Negative) {
+                return DigitConsumeDecision::PosOverflow;
+            } else {
+                return DigitConsumeDecision::NegOverflow;
+            }
+        }
+
+        m_num *= m_base;
+        m_num += positive() ? digit : -digit;
+
+        return DigitConsumeDecision::Consumed;
+    }
+
+    T number() const { return m_num; };
+
+private:
+    // FIXME: NOMOVE
+
+    bool can_append_digit(int digit) {
+        const bool is_below_cutoff = positive() ? (m_num < m_cutoff) : (m_num > m_cutoff);
+
+        if (is_below_cutoff) {
+            return true;
+        } else {
+            return m_num == m_cutoff && digit < m_max_digit_after_cutoff;
+        }
+    }
+
+    bool positive() const {
+        return m_sign != Sign::Negative;
+    }
+
+    const T m_base;
+    T m_num;
+    T m_cutoff;
+    int m_max_digit_after_cutoff;
+    Sign m_sign;
+};
+
+#define INT_MAX 2147483647L
+#define INT_MIN (-LONG_MAX - 1L)
+#define LONG_MAX 2147483647L
+#define LONG_MIN (-LONG_MAX - 1L)
+#define LONG_LONG_MAX 9223372036854775807LL
+#define LONG_LONG_MIN (-LONG_LONG_MAX - 1LL)
+
+typedef NumParser<int, INT_MIN, INT_MAX> IntParser;
+typedef NumParser<long, LONG_MIN, LONG_MAX> LongParser;
+typedef NumParser<long long, LONG_LONG_MIN, LONG_LONG_MAX> LongLongParser;
+
+static const double MY_INFTY_POS = +1.0 / 0.0;
+static const double MY_INFTY_NEG = -1.0 / 0.0;
+static const double MY_NAN = 0.0 / 0.0;
+
+double new_strtod(const char* str, char** endptr) {
+    // Parse spaces, sign, and base
+    char* parse_ptr = const_cast<char*>(str);
+    strtons(parse_ptr, &parse_ptr);
+    const Sign sign = strtosign(parse_ptr, &parse_ptr);
+
+    // Parse inf/nan, if applicable.
+    if (*parse_ptr == 'i' || *parse_ptr == 'I') {
+        if (*(parse_ptr + 1) == 'n' || *(parse_ptr + 1) == 'N') {
+            if (*(parse_ptr + 2) == 'f' || *(parse_ptr + 2) == 'F') {
+                if (endptr)
+                    *endptr = parse_ptr + 3;
+                if (sign != Sign::Negative) {
+                    return MY_INFTY_POS;
+                } else {
+                    return MY_INFTY_NEG;
+                }
+            }
+        }
+    }
+    if (*parse_ptr == 'n' || *parse_ptr == 'N') {
+        if (*(parse_ptr + 1) == 'a' || *(parse_ptr + 1) == 'A') {
+            if (*(parse_ptr + 2) == 'n' || *(parse_ptr + 2) == 'N') {
+                if (endptr)
+                    *endptr = parse_ptr + 3;
+                return MY_NAN;
+            }
+        }
+    }
+
+    // Parse base
+    char exponent_lower;
+    char exponent_upper;
+    int base = 10;
+    if (*parse_ptr == '0') {
+        const char base_ch = *(parse_ptr + 1);
+        if (base_ch == 'x' || base_ch == 'X') {
+            base = 16;
+            parse_ptr += 2;
+        }
+    }
+
+    if (base == 10) {
+        exponent_lower = 'e';
+        exponent_upper = 'E';
+    } else {
+        exponent_lower = 'p';
+        exponent_upper = 'P';
+    }
+
+    // Parse "digits", possibly keeping track of the exponent offset.
+    // We parse the most significant digits and the position in the
+    // base-`base` representation separately. This allows us to handle
+    // numbers like `0.0000000000000000000000000000000000001234` or
+    // `1234567890123456789012345678901234567890` with ease.
+    LongLongParser digits{sign, base};
+    bool should_continue = true;
+    bool digits_overflow = false;
+    bool after_decimal = false;
+    int exponent = 0;
+    do {
+        if (!after_decimal && *parse_ptr == '.') {
+            after_decimal = true;
+            parse_ptr += 1;
+            continue;
+        }
+
+        bool is_a_digit;
+        if (digits_overflow) {
+            is_a_digit = digits.parse_digit(*parse_ptr) != -1;
+        } else {
+            DigitConsumeDecision decision = digits.consume(*parse_ptr);
+            switch (decision) {
+            case DigitConsumeDecision::Consumed:
+                is_a_digit = true;
+                break;
+            case DigitConsumeDecision::PosOverflow:
+                // fallthrough
+            case DigitConsumeDecision::NegOverflow:
+                is_a_digit = true;
+                digits_overflow = true;
+                break;
+            case DigitConsumeDecision::Invalid:
+                is_a_digit = false;
+                break;
+            default:
+                assert(false); // ASSERT_NOT_REACHED();
+            }
+        }
+
+        exponent -= after_decimal;
+        exponent += digits_overflow;
+
+        should_continue = is_a_digit;
+        parse_ptr += should_continue;
+    } while (should_continue);
+
+    // Parse exponent.
+    // We already know the next character is not a digit in the current base,
+    // nor a valid decimal point. Check whether it's an exponent sign.
+    if (*parse_ptr == exponent_lower || *parse_ptr == exponent_upper) {
+        // Need to keep the old parse_ptr around, in case of rollback.
+        char* old_parse_ptr = parse_ptr;
+        parse_ptr += 1;
+
+        // Can't use atol or strtol here: Must accept excessive exponents,
+        // even exponents >64 bits.
+        Sign exponent_sign = strtosign(parse_ptr, &parse_ptr);
+        IntParser exponent_parser{exponent_sign, base};
+        bool exponent_usable = false;
+        bool exponent_overflow = false;
+        should_continue = true;
+        do {
+            bool is_a_digit;
+            if (exponent_overflow) {
+                is_a_digit = exponent_parser.parse_digit(*parse_ptr) != -1;
+            } else {
+                DigitConsumeDecision decision = exponent_parser.consume(*parse_ptr);
+                switch (decision) {
+                case DigitConsumeDecision::Consumed:
+                    is_a_digit = true;
+                    // The very first actual digit must pass here:
+                    exponent_usable = true;
+                    break;
+                case DigitConsumeDecision::PosOverflow:
+                    // fallthrough
+                case DigitConsumeDecision::NegOverflow:
+                    is_a_digit = true;
+                    exponent_overflow = true;
+                    break;
+                case DigitConsumeDecision::Invalid:
+                    is_a_digit = false;
+                    break;
+                default:
+                    assert(false); // ASSERT_NOT_REACHED();
+                }
+            }
+
+            should_continue = is_a_digit;
+            parse_ptr += should_continue;
+        } while (should_continue);
+
+        if (!exponent_usable) {
+            parse_ptr = old_parse_ptr;
+        } else if (exponent_overflow) {
+            // Technically this is wrong. If someone gives us 5GB of digits,
+            // and then an exponent of -5_000_000_000, the resulting exponent
+            // should be around 0.
+            // However, I think it's safe to assume that we never have to deal
+            // with that many digits anyway.
+            if (sign != Sign::Negative) {
+                exponent = INT_MIN;
+            } else {
+                exponent = INT_MAX;
+            }
+        } else {
+            // Literal exponent is usable and fits in an int.
+            // However, `exponent + exponent_parser.number()` might overflow an int.
+            // This would result in the wrong sign of the exponent!
+            long long new_exponent =
+                static_cast<long long>(exponent) + static_cast<long long>(exponent_parser.number());
+            if (new_exponent < INT_MIN) {
+                exponent = INT_MIN;
+            } else if (new_exponent > INT_MAX) {
+                exponent = INT_MAX;
+            } else {
+                exponent = static_cast<int>(new_exponent);
+            }
+        }
+    }
+
+    // Parsing finished. now we only have to compute the result.
     if (endptr)
         *endptr = const_cast<char*>(parse_ptr);
-    return 0;
+
+    // If `digits` is zero, we don't even have to look at `exponent`.
+    if (digits.number() == 0) {
+        if (sign != Sign::Negative) {
+            return 0.0;
+        } else {
+            return -0.0;
+        }
+    }
+
+    // Deal with extreme exponents.
+    // The smallest normal is 2^-1022.
+    // The smallest denormal is 2^-1074.
+    // The largest number in `digits` is 2^63 - 1.
+    // Therefore, if "base^exponent" is smaller than 2^-(1074+63), the result is 0.0 anyway.
+    // This threshold is roughly 5.3566 * 10^-343.
+    // So if the resulting exponent is -344 or lower (closer to -inf),
+    // the result is 0.0 anyway.
+    // We only need to avoid false positives, so we can ignore base 16.
+    if (exponent <= -344) {
+        // Definitely can't be represented more precisely.
+        // I lied, sometimes the result is +0.0, and sometimes -0.0.
+        if (sign != Sign::Negative) {
+            return 0.0;
+        } else {
+            return -0.0;
+        }
+    }
+    // The largest normal is 2^+1024-eps.
+    // The smallest number in `digits` is 1.
+    // Therefore, if "base^exponent" is 2^+1024, the result is INF anyway.
+    // This threshold is roughly 1.7977 * 10^-308.
+    // So if the resulting exponent is +309 or higher,
+    // the result is INF anyway.
+    // We only need to avoid false positives, so we can ignore base 16.
+    if (exponent >= 309) {
+        // Definitely can't be represented more precisely.
+        // I lied, sometimes the result is +INF, and sometimes -INF.
+        if (sign != Sign::Negative) {
+            return MY_INFTY_POS;
+        } else {
+            return -1.0 / 0.0;
+        }
+    }
+
+    // TODO: If `exponent` is large, this is slow.
+    double value = digits.number();
+    if (sign == Sign::Negative) {
+        value *= -1;
+    }
+    if (exponent < 0) {
+        exponent = -exponent;
+        for (int i = 0; i < exponent; ++i) {
+            value /= base;
+        }
+    } else if (exponent > 0) {
+        for (int i = 0; i < exponent; ++i) {
+            value *= base;
+        }
+    }
+
+    return value;
 }
 
 struct Testcase {
@@ -170,7 +523,7 @@ static Testcase TESTCASES[] = {
     {"BWN10", 6, "4034000000000000", "2e0001"},
     {"BWN11", 6, "41ddcd6500000000", "2e0009"},
     {"BWN12", 1, "0000000000000000", "0d1"},
-    {"BWN13", 1, "7ff0000000000000", "184467440737095516151234567890e2147483639", true},
+    {"BWN13", -1, "7ff0000000000000", "184467440737095516151234567890e2147483639", true},
     {"BWN14", -1, "0000000000000000", ".1234567890e-2147483639", true},
     {"BWN15", -1, "8000000000000000", "-1e-9999"},
 
