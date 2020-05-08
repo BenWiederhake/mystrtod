@@ -795,7 +795,7 @@ int main()
             default: assert(false);
         }
     }
-    printf("Out of %d tests, the new strtod fixes %d and regresses %d.\n", NUM_TESTCASES, regressions, fixes);
+    printf("Out of %d tests, the new strtod regresses %d and fixes %d.\n", NUM_TESTCASES, regressions, fixes);
     printf("(%d stayed good and %d stayed bad.)\n", stay_good, stay_bad);
     return 0;
 }
