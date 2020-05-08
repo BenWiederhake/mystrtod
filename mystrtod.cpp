@@ -121,7 +121,10 @@ double old_strtod(const char* str, char** endptr)
 }
 
 double new_strtod(const char* str, char** endptr) {
-    *endptr = const_cast<char*>(str);
+    const char* parse_ptr = str;
+
+    if (endptr)
+        *endptr = const_cast<char*>(parse_ptr);
     return 0;
 }
 
@@ -130,22 +133,28 @@ struct Testcase {
     int should_consume;
     const char* hex;
     const char* test_string;
+    bool skip_old = false;
 };
 
 static Testcase TESTCASES[] = {
     // What I came up with on my own:
-    {"BW0", 0, "0000000000000000", ".."},
-    {"BW1", 2, "3ff0000000000000", "1..0"},
-    {"BW2", 1, "3ff0000000000000", "1"},
-    {"BW3", 2, "0000000000000000", ".0"},
-    {"BW4", 2, "0000000000000000", "0."},
-    {"BW5", 2, "0000000000000000", "0.."},
+    {"BW00", 0, "0000000000000000", ".."},
+    {"BW01", 2, "3ff0000000000000", "1..0"},
+    {"BW02", 1, "3ff0000000000000", "1"},
+    {"BW03", 2, "0000000000000000", ".0"},
+    {"BW04", 2, "0000000000000000", "0."},
+    {"BW05", 2, "0000000000000000", "0.."},
     // Second 'e' overwrites first exponent
-    {"BW6", 3, "40af400000000000", "4e3e4"},
+    {"BW06", 3, "40af400000000000", "4e3e4"},
     // Minus sign in exponent is ignored (`atof` only)
-    {"BW7", 4, "3f747ae147ae147b", "5e-3"},
+    {"BW07", 4, "3f747ae147ae147b", "5e-3"},
     // "e" is ignored if followed by only zeros
-    {"BW8", 3, "401c000000000000", "7e0"},
+    {"BW08", 3, "401c000000000000", "7e0"},
+    // Exponent overflow:
+    {"BW09", -1, "0000000000000000", "1e-4294967296"},
+    // Excessive time use(!):
+    {"BW10", -1, "0000000000000000", "1e-999999999", true},
+
     // From the Serenity GitHub tracker:
     // https://github.com/SerenityOS/serenity/issues/1979
     {"SR1", -1, "4014000000000001", "5.000000000000001"},
@@ -154,6 +163,7 @@ static Testcase TESTCASES[] = {
     {"SR4", -1, "3ff0000000000000", "1.00000000000000000000000000000001"},
     {"SR5", -1, "3ff1f9add37c1216", "1.12345678912345678912345678912345"},
     {"SR6", -1, "3ff1f9add37c1216", "1.123456789123456789123456789123456789123456789"},
+
     // Inspired from Abraham Hrvoje's "negativeFormattingTests":
     // https://github.com/ahrvoje/numerics/blob/master/strtod/strtod_tests.toml
     // Note that my interpretation is slightly stricter than what Abraham Hrvoje wrote.
@@ -179,6 +189,7 @@ static Testcase TESTCASES[] = {
     {"AHN20", 3, "7ff8000000000000", "nan0"},
     {"AHN21", 0, "0000000000000000", "-.e+"},
     {"AHN22", 0, "0000000000000000", "-+12.34"},
+
     // For a better description, see:
     // https://github.com/ahrvoje/numerics/blob/master/strtod/strtod_tests.toml
     // (Comments removed for ease of format conversion.)
@@ -304,7 +315,7 @@ static Testcase TESTCASES[] = {
 
     // For the future: hexadecimal floats.
     // Note that "0x579a" is "0xabcd << 1" with the top bit cut off, just as expected.
-    {"F1", -1, "7c2579a000000000", "0xab.cdPef"},
+    {"Fp1", -1, "7c2579a000000000", "0xab.cdPef"},
 };
 
 constexpr size_t NUM_TESTCASES = sizeof(TESTCASES) / sizeof(TESTCASES[0]);
@@ -379,7 +390,12 @@ int main()
         printf("%3u(%-5s):", i, tc.test_name);
         printf(" %s(%2d)", tc.hex, tc.should_consume);
         evaluate_strtod(strtod, tc.test_string, tc.hex, tc.should_consume);
-        bool old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
+        bool old_bad = true;
+        if (tc.skip_old) {
+            printf(" %s_____(skip)_____%s(__)", TEXT_WRONG, TEXT_RESET);
+        } else {
+            old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
+        }
         bool new_bad = evaluate_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume);
         printf(" – %s\n", tc.test_string);
         switch ((old_bad ? 2 : 0) | (new_bad ? 1 : 0))
