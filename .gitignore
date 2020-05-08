@@ -2,6 +2,7 @@ mystrtod
 mystrtod.cflags
 mystrtod.config
 mystrtod.creator
+mystrtod.creator.user
 mystrtod.cxxflags
 mystrtod.files
 mystrtod.includes
