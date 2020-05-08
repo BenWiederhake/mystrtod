@@ -241,7 +241,7 @@ typedef NumParser<long long, LONG_LONG_MIN, LONG_LONG_MAX> LongLongParser;
 
 static const double MY_INFTY_POS = +1.0 / 0.0;
 static const double MY_INFTY_NEG = -1.0 / 0.0;
-static const double MY_NAN = 0.0 / 0.0;
+static const double MY_NAN = -(0.0 / 0.0);
 
 double new_strtod(const char* str, char** endptr) {
     // Parse spaces, sign, and base
