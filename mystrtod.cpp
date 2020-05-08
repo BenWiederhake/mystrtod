@@ -133,13 +133,19 @@ struct Testcase {
 };
 
 static Testcase TESTCASES[] = {
-    // What I came up with on my own
+    // What I came up with on my own:
     {"BW0", 0, "0000000000000000", ".."},
     {"BW1", 2, "3ff0000000000000", "1..0"},
     {"BW2", 1, "3ff0000000000000", "1"},
     {"BW3", 2, "0000000000000000", ".0"},
     {"BW4", 2, "0000000000000000", "0."},
     {"BW5", 2, "0000000000000000", "0.."},
+    // Second 'e' overwrites first exponent
+    {"BW6", 3, "40af400000000000", "4e3e4"},
+    // Minus sign in exponent is ignored (`atof` only)
+    {"BW7", 4, "3f747ae147ae147b", "5e-3"},
+    // "e" is ignored if followed by only zeros
+    {"BW8", 3, "401c000000000000", "7e0"},
     // From the Serenity GitHub tracker:
     // https://github.com/SerenityOS/serenity/issues/1979
     {"SR1", -1, "4014000000000001", "5.000000000000001"},
