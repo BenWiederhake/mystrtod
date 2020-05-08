@@ -154,6 +154,25 @@ static Testcase TESTCASES[] = {
     {"BW09", -1, "0000000000000000", "1e-4294967296"},
     // Excessive time use(!):
     {"BW10", -1, "0000000000000000", "1e-999999999", true},
+    // Excessively large exponent (>64 bits):
+    {"BW10", -1, "0000000000000000", "1e-9999999999999999999999", true},
+
+    // Bugs I nearly introduced
+    {"BWN01", 2, "3ff0000000000000", "1.-2"},
+    {"BWN02", 2, "3ff0000000000000", "1. 2"},
+    {"BWN03", 0, "0000000000000000", "++2"},
+    {"BWN04", 1, "0000000000000000", "0b101"},
+    {"BWN05", 3, "0000000000000000", "  0b101"},
+    {"BWN06", 1, "0000000000000000", "0o123"},
+    {"BWN07", 1, "0000000000000000", "0y2"},
+    {"BWN08", 1, "3ff0000000000000", "1e"},
+    {"BWN09", 1, "3ff0000000000000", "1e-"},
+    {"BWN10", 6, "4034000000000000", "2e0001"},
+    {"BWN11", 6, "41ddcd6500000000", "2e0009"},
+    {"BWN12", 1, "0000000000000000", "0d1"},
+    {"BWN13", 1, "7ff0000000000000", "184467440737095516151234567890e2147483639", true},
+    {"BWN14", -1, "0000000000000000", ".1234567890e-2147483639", true},
+    {"BWN15", -1, "8000000000000000", "-1e-9999"},
 
     // From the Serenity GitHub tracker:
     // https://github.com/SerenityOS/serenity/issues/1979
@@ -315,7 +334,9 @@ static Testcase TESTCASES[] = {
 
     // For the future: hexadecimal floats.
     // Note that "0x579a" is "0xabcd << 1" with the top bit cut off, just as expected.
-    {"Fp1", -1, "7c2579a000000000", "0xab.cdPef"},
+    {"Fp1", -1, "7c2579a000000000", "0xab.cdpef"},
+    // Sneaky floating point :P
+    {"Fp2", -1, "43e9400000000000", "0xCAPE"},
 };
 
 constexpr size_t NUM_TESTCASES = sizeof(TESTCASES) / sizeof(TESTCASES[0]);
