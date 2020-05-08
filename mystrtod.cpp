@@ -243,6 +243,11 @@ static const double MY_INFTY_POS = +1.0 / 0.0;
 static const double MY_INFTY_NEG = -1.0 / 0.0;
 static const double MY_NAN = -(0.0 / 0.0);
 
+bool is_either(char* str, int offset, char lower, char upper) {
+    char ch = *(str + offset);
+    return ch == lower || ch == upper;
+}
+
 double new_strtod(const char* str, char** endptr) {
     // Parse spaces, sign, and base
     char* parse_ptr = const_cast<char*>(str);
@@ -250,11 +255,23 @@ double new_strtod(const char* str, char** endptr) {
     const Sign sign = strtosign(parse_ptr, &parse_ptr);
 
     // Parse inf/nan, if applicable.
-    if (*parse_ptr == 'i' || *parse_ptr == 'I') {
-        if (*(parse_ptr + 1) == 'n' || *(parse_ptr + 1) == 'N') {
-            if (*(parse_ptr + 2) == 'f' || *(parse_ptr + 2) == 'F') {
+    if (is_either(parse_ptr, 0, 'i', 'I')) {
+        if (is_either(parse_ptr, 1, 'n', 'N')) {
+            if (is_either(parse_ptr, 2, 'f', 'F')) {
+                parse_ptr += 3;
+                if (is_either(parse_ptr, 0, 'i', 'I')) {
+                    if (is_either(parse_ptr, 1, 'n', 'N')) {
+                        if (is_either(parse_ptr, 2, 'i', 'I')) {
+                            if (is_either(parse_ptr, 3, 't', 'T')) {
+                                if (is_either(parse_ptr, 4, 'y', 'Y')) {
+                                    parse_ptr += 5;
+                                }
+                            }
+                        }
+                    }
+                }
                 if (endptr)
-                    *endptr = parse_ptr + 3;
+                    *endptr = parse_ptr;
                 if (sign != Sign::Negative) {
                     return MY_INFTY_POS;
                 } else {
@@ -263,12 +280,16 @@ double new_strtod(const char* str, char** endptr) {
             }
         }
     }
-    if (*parse_ptr == 'n' || *parse_ptr == 'N') {
-        if (*(parse_ptr + 1) == 'a' || *(parse_ptr + 1) == 'A') {
-            if (*(parse_ptr + 2) == 'n' || *(parse_ptr + 2) == 'N') {
+    if (is_either(parse_ptr, 0, 'n', 'N')) {
+        if (is_either(parse_ptr, 1, 'a', 'A')) {
+            if (is_either(parse_ptr, 2, 'n', 'N')) {
                 if (endptr)
                     *endptr = parse_ptr + 3;
-                return MY_NAN;
+                if (sign != Sign::Negative) {
+                    return MY_NAN;
+                } else {
+                    return -MY_NAN;
+                }
             }
         }
     }
