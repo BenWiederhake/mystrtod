@@ -333,8 +333,10 @@ double new_strtod(const char* str, char** endptr) {
             }
         }
 
-        exponent -= after_decimal;
-        exponent += digits_overflow;
+        if (is_a_digit) {
+            exponent -= after_decimal ? 1 : 0;
+            exponent += digits_overflow ? 1 : 0;
+        }
 
         should_continue = is_a_digit;
         parse_ptr += should_continue;
