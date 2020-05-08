@@ -476,9 +476,6 @@ double new_strtod(const char* str, char** endptr) {
 
     // TODO: If `exponent` is large, this is slow.
     double value = digits.number();
-    if (sign == Sign::Negative) {
-        value *= -1;
-    }
     if (exponent < 0) {
         exponent = -exponent;
         for (int i = 0; i < exponent; ++i) {
