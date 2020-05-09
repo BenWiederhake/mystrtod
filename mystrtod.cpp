@@ -493,7 +493,7 @@ double new_strtod(const char* str, char** endptr) {
         if (sign != Sign::Negative) {
             return MY_INFTY_POS;
         } else {
-            return -1.0 / 0.0;
+            return MY_INFTY_NEG;
         }
     }
 
