@@ -11,10 +11,12 @@ typedef char assert_size_t_is_int[sizeof(size_t) == 4 ? 1 : -1];
 #if 1
 static const char* TEXT_ERROR = "\x1b[01;35m";
 static const char* TEXT_WRONG = "\x1b[01;31m";
+static const char* TEXT_OFBY1 = "\x1b[01;97m";
 static const char* TEXT_RESET = "\x1b[0m";
 #else
 static const char* TEXT_ERROR = "";
 static const char* TEXT_WRONG = "";
+static const char* TEXT_OFBY1 = "";
 static const char* TEXT_RESET = "";
 #endif
 
@@ -732,7 +734,7 @@ constexpr size_t NUM_TESTCASES = sizeof(TESTCASES) / sizeof(TESTCASES[0]);
 
 typedef double (*strtod_fn_t)(const char* str, char** endptr);
 
-bool evaluate_strtod(strtod_fn_t strtod_fn, const char* test_string, const char* expect_hex, int expect_consume) {
+bool evaluate_strtod(strtod_fn_t strtod_fn, const char* test_string, const char* expect_hex, int expect_consume, long long expect_ll) {
     union readable_t {
         double as_double;
         unsigned char as_bytes[8];
@@ -763,19 +765,42 @@ bool evaluate_strtod(strtod_fn_t strtod_fn, const char* test_string, const char*
         actual_consume = endptr - test_string;
     }
 
-    bool wrong_hex = strcmp(expect_hex, actual_hex) != 0;
+    long long actual_ll = *(unsigned long long*)&readable.as_double;
+    long long off_by = expect_ll - actual_ll;
+
+    bool ofby1_hex = off_by != 0 && -8 <= off_by && off_by <= 8;
+    bool wrong_hex = !ofby1_hex && strcmp(expect_hex, actual_hex) != 0;
     bool error_cns = !actual_consume_possible;
     bool wrong_cns = !error_cns && (actual_consume != expect_consume);
 
     printf(" %s%s%s(%s%2u%s)",
-           wrong_hex ? TEXT_WRONG : "",
+           ofby1_hex ? TEXT_OFBY1 : wrong_hex ? TEXT_WRONG : "",
            actual_hex,
-           wrong_hex ? TEXT_RESET : "",
+           (ofby1_hex || wrong_hex) ? TEXT_RESET : "",
            error_cns ? TEXT_ERROR : wrong_cns ? TEXT_WRONG : "",
            actual_consume,
            (error_cns || wrong_cns) ? TEXT_RESET : "");
 
     return wrong_hex || error_cns || wrong_cns;
+}
+
+long long hex_to_ll(const char* hex) {
+    long long result = 0;
+    for (int i = 0; i < 16; ++i) {
+        char ch = *(hex + i);
+        int digit;
+        if ('0' <= ch && ch <= '9') {
+            digit = ch - '0';
+        } else if ('a' <= ch && ch <= 'f') {
+            digit = ch - 'a' + 10;
+        } else {
+            printf("\n!!! Encountered char %02x at %d.\n", ch, i);
+            assert(false);
+        }
+        result <<= 4;
+        result += digit;
+    }
+    return result;
 }
 
 int main()
@@ -799,14 +824,15 @@ int main()
         }
         printf("%3u(%-5s):", i, tc.test_name);
         printf(" %s(%2d)", tc.hex, tc.should_consume);
-        evaluate_strtod(strtod, tc.test_string, tc.hex, tc.should_consume);
+        long long expect_ll = hex_to_ll(tc.hex);
+        evaluate_strtod(strtod, tc.test_string, tc.hex, tc.should_consume, expect_ll);
         bool old_bad = true;
         if (tc.skip_old) {
             printf(" %s_____(skip)_____%s(__)", TEXT_WRONG, TEXT_RESET);
         } else {
-            old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume);
+            old_bad = evaluate_strtod(old_strtod, tc.test_string, tc.hex, tc.should_consume, expect_ll);
         }
-        bool new_bad = evaluate_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume);
+        bool new_bad = evaluate_strtod(new_strtod, tc.test_string, tc.hex, tc.should_consume, expect_ll);
         printf(" – %s", tc.test_string);
         switch ((old_bad ? 2 : 0) | (new_bad ? 1 : 0))
         {
